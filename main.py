@@ -24,9 +24,14 @@ face_model = None
 
 def load_face_model():
     global face_model
+    model_path = "models/buffalo_l"  # Path to your model folder
+
     if face_model is None:
-        # Load a smaller model (buffalo_h) instead of buffalo_l to reduce memory footprint
-        # model_path = "models/buffalo_l"  # Path to your model folder
+        # Check if model files exist at the specified path
+        if not os.path.exists(model_path) or not os.listdir(model_path):
+            raise HTTPException(status_code=404, detail="Model files are missing or not loaded properly")
+        
+        # Load the model if it's available
         face_model = insightface.app.FaceAnalysis(name='buffalo_l')  # 'buffalo_h' is smaller
         face_model.prepare(ctx_id=ctx_id)  # Ensure the model uses CPU (ctx_id=-1)
 
