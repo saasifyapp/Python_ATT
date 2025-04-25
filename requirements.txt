@@ -13,3 +13,4 @@ torchaudio==2.2.1+cpu
 
 # InsightFace version that works with above
 insightface==0.7.3
+onnxruntime
