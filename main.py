@@ -1,37 +1,42 @@
-import cv2
-import numpy as np
-import insightface
-import torch
-import logging
 import os
+import cv2
 import base64
+import torch
+import numpy as np
+import logging
+import insightface
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 from concurrent.futures import ThreadPoolExecutor
 
-# Suppress logs
+# Suppress unnecessary logs
 logging.getLogger("insightface").setLevel(logging.ERROR)
 cv2.setLogLevel(0)
 os.environ["TORCH_CPP_LOG_LEVEL"] = "ERROR"
 os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
 
+# App initialization
+app = FastAPI()
 ctx_id = -1
 embedding_dimension = 512
+stored_embeddings = []
 
-# Global variable for lazy loading
+# Lazy model loader
 face_model = None
 
 def get_face_model():
     global face_model
     if face_model is None:
-        model_dir = os.path.join("models", "buffalo_l")  # Adjust path as per Render's deployment
-        face_model = insightface.app.FaceAnalysis(name='buffalo_l', root=model_dir)
+        model_dir = os.path.join(os.getcwd(), "models", "buffalo_l")
+        if not os.path.exists(model_dir):
+            raise FileNotFoundError(f"Model directory not found: {model_dir}")
+        face_model = insightface.app.FaceAnalysis(name="buffalo_l", root=model_dir)
         face_model.prepare(ctx_id=ctx_id)
+        print("✅ Face model loaded successfully.")
     return face_model
 
-app = FastAPI()
-
+# Request Models
 class ImageData(BaseModel):
     images: List[str]
 
@@ -45,15 +50,14 @@ class StoredEmbedding(BaseModel):
     standard_division: str
     embedding: List[List[float]]
 
-stored_embeddings = []
-
+# Utility Functions
 def decode_base64_to_image(base64_string):
     try:
         if "," in base64_string:
             base64_string = base64_string.split(",")[1]
         image_data = base64.b64decode(base64_string)
         img = cv2.imdecode(np.frombuffer(image_data, np.uint8), cv2.IMREAD_COLOR)
-        return cv2.resize(img, (640, 640)) if img is not None else None
+        return img if img is not None else None
     except Exception:
         return None
 
@@ -66,16 +70,18 @@ def extract_embedding(base64_string):
     if not faces:
         return None
     embedding = faces[0].embedding.tolist()
-    if np.array(embedding).shape == (embedding_dimension,):
-        return embedding
-    return None
+    return embedding if np.array(embedding).shape == (embedding_dimension,) else None
 
 def cosine_similarity_np(ref_embedding, img_embedding):
     dot_product = np.dot(ref_embedding, img_embedding)
     norm_product = np.linalg.norm(ref_embedding) * np.linalg.norm(img_embedding)
     similarity = dot_product / norm_product
-    confidence = (similarity + 1) / 2 * 100
-    return confidence
+    return (similarity + 1) / 2 * 100  # Convert to percentage confidence
+
+# Routes
+@app.get("/")
+def read_root():
+    return {"message": "🚀 Face Recognition API is live!"}
 
 @app.post("/extract-embedding")
 async def extract_embeddings(data: ImageData):
@@ -95,10 +101,10 @@ async def store_embeddings(data: List[StoredEmbedding]):
                         "name": embedding_data.name,
                         "section": embedding_data.section,
                         "standard_division": embedding_data.standard_division,
-                        "embedding": emb,
+                        "embedding": emb
                     })
         return {
-            "message": "Embeddings stored successfully",
+            "message": "✅ Embeddings stored successfully",
             "count": len(stored_embeddings),
             "data": stored_embeddings
         }
@@ -109,11 +115,10 @@ async def store_embeddings(data: List[StoredEmbedding]):
 async def embedd_live_face(data: LiveImageData):
     embedding = extract_embedding(data.image)
     if embedding is None:
-        return {"error": "No face detected or embedding failed"}
+        return {"status": "Failed", "error": "No face detected or embedding extraction failed."}
 
     threshold = 75
     matching_users = []
-    match_found = False
 
     for stored in stored_embeddings:
         confidence = cosine_similarity_np(stored["embedding"], embedding)
@@ -126,24 +131,19 @@ async def embedd_live_face(data: LiveImageData):
                 "confidence": confidence,
                 "live_face_embedding": embedding
             })
-            match_found = True
-            break
+            break  # Early exit after first high-confidence match
 
-    if match_found:
+    if matching_users:
         return {"status": "Match Found", "matches": matching_users}
     else:
         return {
             "status": "No Match Found",
-            "error": "No match found",
-            "confidence": "highest",
+            "error": "Face does not match any stored record",
             "live_face_embedding": embedding
         }
 
-@app.get("/")
-def read_root():
-    return {"message": "Face Recognition API is live!"}
-
-
+# Local testing entrypoint
 if __name__ == "__main__":
     import uvicorn
+    print("🚀 Starting server at http://localhost:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
