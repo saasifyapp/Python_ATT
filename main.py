@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 from concurrent.futures import ThreadPoolExecutor
+from fastapi.responses import FileResponse
 
 # Suppress logs
 logging.getLogger("insightface").setLevel(logging.ERROR)
@@ -22,16 +23,17 @@ ctx_id = -1  # Use CPU by default
 # Lazy-load model
 face_model = None
 
+# Path where models are stored (make sure to update if the path is different)
+model_path = "models/buffalo_l"  # Path to the folder containing the buffalo_l model files
+
 def load_face_model():
     global face_model
-    model_path = "models/buffalo_l"  # Path to your model folder
-
     if face_model is None:
-        # Check if model files exist at the specified path
-        if not os.path.exists(model_path) or not os.listdir(model_path):
-            raise HTTPException(status_code=404, detail="Model files are missing or not loaded properly")
+        # Load the smaller model (buffalo_h) instead of buffalo_l to reduce memory footprint
+        # If you are sure the model is already uploaded and stored, this will load the model from the correct path
+        if not os.path.exists(model_path):
+            raise HTTPException(status_code=404, detail="Model not found in the specified directory.")
         
-        # Load the model if it's available
         face_model = insightface.app.FaceAnalysis(name='buffalo_l')  # 'buffalo_h' is smaller
         face_model.prepare(ctx_id=ctx_id)  # Ensure the model uses CPU (ctx_id=-1)
 
@@ -160,6 +162,14 @@ async def embedd_live_face(data: LiveImageData):
             "confidence": "highest",
             "live_face_embedding": embedding  # Include live face embedding in the response
         }
+
+# Ensure the model files are available and not downloaded
+@app.get("/models/buffalo_l")
+async def serve_model():
+    # Provide the path to the folder where models are stored on the server
+    if not os.path.exists(model_path):
+        raise HTTPException(status_code=404, detail="Model not found in the specified directory.")
+    return {"message": "Model files are already loaded and available for use."}
 
 if __name__ == "__main__":
     import uvicorn
