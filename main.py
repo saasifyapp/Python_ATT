@@ -19,9 +19,14 @@ os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
 # Check for GPU
 ctx_id = 0 if torch.cuda.is_available() else -1
 
-# Load model
-face_model = insightface.app.FaceAnalysis(name='buffalo_l')
-face_model.prepare(ctx_id=ctx_id)
+# Lazy-load model
+face_model = None
+
+def load_face_model():
+    global face_model
+    if face_model is None:
+        face_model = insightface.app.FaceAnalysis(name='buffalo_l')
+        face_model.prepare(ctx_id=ctx_id)
 
 embedding_dimension = 512  # Expected dimension of embeddings
 
@@ -55,6 +60,8 @@ def decode_base64_to_image(base64_string):
         return None
 
 def extract_embedding(base64_string):
+    load_face_model()  # Lazy load model only when needed
+
     img = decode_base64_to_image(base64_string)
     if img is None:
         return None
@@ -83,7 +90,7 @@ def cosine_similarity_np(ref_embedding, img_embedding):
 
 @app.post("/extract-embedding")
 async def extract_embeddings(data: ImageData):
-    with ThreadPoolExecutor() as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         embeddings = list(filter(None, executor.map(extract_embedding, data.images)))
 
     return {"embeddings": embeddings[:5]}  # Return only 5 embeddings
@@ -150,6 +157,3 @@ async def embedd_live_face(data: LiveImageData):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
-
-
-#uvicorn main:app --host 0.0.0.0 --port 8000 --reload
