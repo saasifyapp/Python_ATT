@@ -16,8 +16,8 @@ cv2.setLogLevel(0)
 os.environ["TORCH_CPP_LOG_LEVEL"] = "ERROR"
 os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
 
-# Check for GPU
-ctx_id = 0 if torch.cuda.is_available() else -1
+# Enforce CPU usage for the model (no GPU support)
+ctx_id = -1  # Use CPU by default
 
 # Lazy-load model
 face_model = None
@@ -25,8 +25,9 @@ face_model = None
 def load_face_model():
     global face_model
     if face_model is None:
-        face_model = insightface.app.FaceAnalysis(name='buffalo_l')
-        face_model.prepare(ctx_id=ctx_id)
+        # Load a smaller model (buffalo_h) instead of buffalo_l to reduce memory footprint
+        face_model = insightface.app.FaceAnalysis(name='buffalo_h')  # 'buffalo_h' is smaller
+        face_model.prepare(ctx_id=ctx_id)  # Ensure the model uses CPU (ctx_id=-1)
 
 embedding_dimension = 512  # Expected dimension of embeddings
 
