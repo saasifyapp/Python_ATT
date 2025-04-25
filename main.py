@@ -26,7 +26,8 @@ def load_face_model():
     global face_model
     if face_model is None:
         # Load a smaller model (buffalo_h) instead of buffalo_l to reduce memory footprint
-        face_model = insightface.app.FaceAnalysis(name='buffalo_h')  # 'buffalo_h' is smaller
+        # model_path = "models/buffalo_l"  # Path to your model folder
+        face_model = insightface.app.FaceAnalysis(name='buffalo_l')  # 'buffalo_h' is smaller
         face_model.prepare(ctx_id=ctx_id)  # Ensure the model uses CPU (ctx_id=-1)
 
 embedding_dimension = 512  # Expected dimension of embeddings

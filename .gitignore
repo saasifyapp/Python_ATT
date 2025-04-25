@@ -1,0 +1,19 @@
+# Ignore Python bytecode files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Ignore environment directories
+.env/
+.venv/
+
+# Ignore model files if they're not meant to be tracked
+models/buffalo_l/*.zip
+models/buffalo_l/*.tar.gz
+models/buffalo_l/*.tar
+models/buffalo_l/*.7z
+models
+# Ignore other common files
+*.log
+*.swp
+.DS_Store
