@@ -147,6 +147,11 @@ async def embedd_live_face(data: LiveImageData):
             "live_face_embedding": embedding  # Include live face embedding in the response
         }
 
+@app.get("/")
+def read_root():
+    return {"message": "Face Recognition API is live!"}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
