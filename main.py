@@ -17,7 +17,7 @@ os.environ["TORCH_CPP_LOG_LEVEL"] = "ERROR"
 os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
 
 # Check for GPU
-ctx_id = 0 if torch.cuda.is_available() else -1
+ctx_id = -1
 
 # Load the model (only detection and recognition)
 face_model = insightface.app.FaceAnalysis(name='buffalo_l')
