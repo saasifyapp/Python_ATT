@@ -1,174 +1,158 @@
+import os
 import cv2
-import numpy as np
-import insightface
+import base64
 import torch
 import logging
-import os
-import base64
+import numpy as np
+import insightface
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 from concurrent.futures import ThreadPoolExecutor
 
-# Suppress logs
+# Suppress unnecessary logs
 logging.getLogger("insightface").setLevel(logging.ERROR)
 cv2.setLogLevel(0)
 os.environ["TORCH_CPP_LOG_LEVEL"] = "ERROR"
 os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
 
-# Check for GPU
+# Environment setup
 ctx_id = 0 if torch.cuda.is_available() else -1
+embedding_dimension = 512  # Face embedding dimension
 
-# Load models separately (lightweight detection + recognition)
+# Load models
 from insightface.model_zoo import get_model
+detector = get_model('scrfd_2.5g_bnkps')
+recognizer = get_model('glintr100@insightface')
+detector.prepare(ctx_id=ctx_id)
+recognizer.prepare(ctx_id=ctx_id)
 
-det_model = get_model('scrfd_2.5g_bnkps')  # Lightweight face detector
-det_model.prepare(ctx_id=ctx_id)
-
-rec_model = get_model('glintr100@insightface')  # Lightweight recognition model
-rec_model.prepare(ctx_id=ctx_id)
-
-embedding_dimension = 512  # Expected dimension of embeddings
-
+# FastAPI setup
 app = FastAPI()
 
+# Data models
 class ImageData(BaseModel):
-    images: List[str]  # List of base64 strings
+    images: List[str]
 
 class LiveImageData(BaseModel):
-    image: str  # Single base64 image string
+    image: str
 
 class StoredEmbedding(BaseModel):
     user_id: str
     name: str
     section: str
     standard_division: str
-    embedding: List[List[float]]  # Ensuring embedding as a list of list of floats
+    embedding: List[List[float]]
 
+# In-memory storage
 stored_embeddings = []
 
-def decode_base64_to_image(base64_string):
+# Utility functions
+def decode_base64_image(base64_str: str):
     try:
-        if "," in base64_string:
-            base64_string = base64_string.split(",")[1]
-
-        image_data = base64.b64decode(base64_string)
-        img = cv2.imdecode(np.frombuffer(image_data, np.uint8), cv2.IMREAD_COLOR)
-
+        if ',' in base64_str:
+            base64_str = base64_str.split(',')[1]
+        img_data = base64.b64decode(base64_str)
+        img = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
         return cv2.resize(img, (640, 640)) if img is not None else None
     except Exception:
         return None
 
-def extract_embedding(base64_string):
-    img = decode_base64_to_image(base64_string)
+def extract_face_embedding(base64_str: str):
+    img = decode_base64_image(base64_str)
     if img is None:
         return None
 
-    bboxes, landmarks = det_model.detect(img, max_num=1, metric='default')
+    bboxes, landmarks = detector.detect(img, max_num=1, metric='default')
     if bboxes.shape[0] == 0:
         return None
 
-    bbox = bboxes[0]  # Take the first face
-    x1, y1, x2, y2, _ = bbox.astype(int)
-    face_img = img[y1:y2, x1:x2]
+    x1, y1, x2, y2, _ = bboxes[0].astype(int)
+    face = img[y1:y2, x1:x2]
 
-    if face_img.size == 0:
+    if face.size == 0:
         return None
 
-    # Resize face image to recognition model input size
-    face_img = cv2.resize(face_img, (112, 112))
+    face = cv2.resize(face, (112, 112))
+    face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
+    embedding = recognizer.get(face).tolist()
 
-    # Normalize face image if needed
-    face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
-
-    # Get face embedding
-    embedding = rec_model.get(face_img).tolist()
-    embedding_shape = np.array(embedding).shape
-
-    # Ensure the embedding has the correct dimension
-    if embedding_shape == (embedding_dimension,):
+    if np.array(embedding).shape == (embedding_dimension,):
         return embedding
-    else:
-        return None
+    return None
 
-def cosine_similarity_np(ref_embedding, img_embedding):
-    dot_product = np.dot(ref_embedding, img_embedding)
-    norm_product = np.linalg.norm(ref_embedding) * np.linalg.norm(img_embedding)
-    similarity = dot_product / norm_product
-    confidence = (similarity + 1) / 2 * 100  # Convert to percentage (0-100%)
-    return confidence
+def compute_cosine_similarity(vec1, vec2):
+    dot = np.dot(vec1, vec2)
+    norm = np.linalg.norm(vec1) * np.linalg.norm(vec2)
+    return (dot / norm + 1) / 2 * 100  # 0 to 100%
 
-########### Embedd 5 images while enrolling ############
-
+# API Endpoints
 @app.post("/extract-embedding")
 async def extract_embeddings(data: ImageData):
     with ThreadPoolExecutor() as executor:
-        embeddings = list(filter(None, executor.map(extract_embedding, data.images)))
-
-    return {"embeddings": embeddings[:5]}  # Return only 5 embeddings
-
-########### Store existing embeddings in object ############
+        embeddings = list(filter(None, executor.map(extract_face_embedding, data.images)))
+    return {"embeddings": embeddings[:5]}
 
 @app.post("/store-retrieve-embeddings")
 async def store_embeddings(data: List[StoredEmbedding]):
     try:
-        # Clear existing records
         stored_embeddings.clear()
-        
-        for embedding_data in data:
-            for emb in embedding_data.embedding:
+        for user_data in data:
+            for emb in user_data.embedding:
                 if np.array(emb).shape == (embedding_dimension,):
                     stored_embeddings.append({
-                        "user_id": embedding_data.user_id,
-                        "name": embedding_data.name,
-                        "section": embedding_data.section,
-                        "standard_division": embedding_data.standard_division,
+                        "user_id": user_data.user_id,
+                        "name": user_data.name,
+                        "section": user_data.section,
+                        "standard_division": user_data.standard_division,
                         "embedding": emb,
                     })
-        
-        return {"message": "Embeddings stored successfully", "count": len(stored_embeddings), "data": stored_embeddings}
+        return {
+            "message": "Embeddings stored successfully",
+            "count": len(stored_embeddings),
+            "data": stored_embeddings
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-############### Embedd live feed from Webcam #########
-
 @app.post("/embedd-live-face")
 async def embedd_live_face(data: LiveImageData):
-    embedding = extract_embedding(data.image)
+    embedding = extract_face_embedding(data.image)
     if embedding is None:
         return {"error": "No face detected or embedding failed"}
 
-    threshold = 75  # Adjust threshold as needed
-
-    matching_users = []
+    threshold = 75
     match_found = False
-    for stored in stored_embeddings:
-        confidence = cosine_similarity_np(stored["embedding"], embedding)
+    matches = []
+
+    for record in stored_embeddings:
+        confidence = compute_cosine_similarity(record["embedding"], embedding)
         if confidence > threshold:
-            matching_users.append({
-                "user_id": stored["user_id"],
-                "name": stored["name"],
-                "section": stored["section"],
-                "standard_division": stored["standard_division"],
+            matches.append({
+                "user_id": record["user_id"],
+                "name": record["name"],
+                "section": record["section"],
+                "standard_division": record["standard_division"],
                 "confidence": confidence,
-                "live_face_embedding": embedding  # Include live face embedding in the response
+                "live_face_embedding": embedding
             })
             match_found = True
-            break  # Exit after the first match
+            break
 
     if match_found:
-        return {"status": "Match Found", "matches": matching_users}
+        return {"status": "Match Found", "matches": matches}
     else:
         return {
             "status": "No Match Found",
-            "error": "No match found",
+            "error": "No matching user found",
             "confidence": "highest",
-            "live_face_embedding": embedding  # Include live face embedding in the response
+            "live_face_embedding": embedding
         }
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
 
-# Run command:
+# Command to run:
 # uvicorn main:app --host 0.0.0.0 --port=8000 --reload
