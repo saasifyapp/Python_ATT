@@ -146,6 +146,10 @@ async def embedd_live_face(data: LiveImageData):
             "confidence": "highest",
             "live_face_embedding": embedding  # Include live face embedding in the response
         }
+    
+@app.get("/keep-alive")
+async def keep_alive():
+    return {"status": "ok"}
 
 if __name__ == "__main__":
     import uvicorn
