@@ -17,9 +17,9 @@ os.environ["TORCH_CPP_LOG_LEVEL"] = "ERROR"
 os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
 
 # Check for GPU
-ctx_id = -1
+ctx_id = 0 if torch.cuda.is_available() else -1
 
-# Load the model (only detection and recognition)
+# Load model
 face_model = insightface.app.FaceAnalysis(name='buffalo_l')
 face_model.prepare(ctx_id=ctx_id)
 
@@ -59,12 +59,10 @@ def extract_embedding(base64_string):
     if img is None:
         return None
 
-    # Detect faces (without alignment to reduce memory usage)
     faces = face_model.get(img)
     if not faces:
         return None
 
-    # Get the embedding from the detected face
     embedding = faces[0].embedding.tolist()
     embedding_shape = np.array(embedding).shape
 
@@ -153,5 +151,5 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
 
-# To run the app:
-# uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+#uvicorn main:app --host 0.0.0.0 --port 8000 --reload
