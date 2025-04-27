@@ -1,16 +1,11 @@
-fastapi==0.110.0
-uvicorn[standard]==0.29.0
-opencv-python-headless==4.8.1.78
-numpy==1.24.4
-pydantic==1.10.13
-concurrent-log-handler==0.9.20
-
-# Torch CPU versions (safe for cloud)
-torch==2.2.1+cpu
-torchvision==0.17.1+cpu
-torchaudio==2.2.1+cpu
---extra-index-url https://download.pytorch.org/whl/cpu
-
-# InsightFace version that works with above
-insightface==0.7.3
+fastapi
+uvicorn
+opencv-python
+numpy
+insightface
+torch
+torchvision
+torchaudio
+pydantic
+concurrent-log-handler
 onnxruntime
